@@ -3,6 +3,8 @@
 package cert
 
 import (
+	"crypto/ecdsa"
+	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -11,27 +13,6 @@ import (
 	"sort"
 	"strings"
 )
-
-// CompareCertificates x509 compares two CA certificates
-func CompareCertificates(cert1, cert2 []byte) (bool, error) {
-	p1, _ := pem.Decode(cert1)
-	if p1 == nil {
-		return false, errors.New("Unable to pem decode certificate")
-	}
-	parsedCert1, err := x509.ParseCertificate(p1.Bytes)
-	if err != nil {
-		return false, err
-	}
-	p2, _ := pem.Decode(cert2)
-	if p2 == nil {
-		return false, errors.New("Unable to pem decode certificate")
-	}
-	parsedCert2, err := x509.ParseCertificate(p2.Bytes)
-	if err != nil {
-		return false, err
-	}
-	return parsedCert1.Equal(parsedCert2), nil
-}
 
 func displayName(name pkix.Name) string {
 	var ns []string
@@ -80,4 +61,37 @@ func hostnamesEquals(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+func verifyCertChain(ca *x509.Certificate, cert *x509.Certificate) error {
+	roots := x509.NewCertPool()
+	roots.AddCert(ca)
+	_, err := cert.Verify(x509.VerifyOptions{
+		Roots: roots,
+	})
+	return err
+}
+
+func encodeKeyToPem(key interface{}) ([]byte, error) {
+	switch key.(type) {
+	case *ecdsa.PrivateKey:
+		data, err := x509.MarshalECPrivateKey(key.(*ecdsa.PrivateKey))
+		if err != nil {
+			return nil, err
+		}
+		return pem.EncodeToMemory(
+			&pem.Block{
+				Type:  "EC PRIVATE KEY",
+				Bytes: data,
+			},
+		), nil
+	case *rsa.PrivateKey:
+		return pem.EncodeToMemory(
+			&pem.Block{
+				Type:  "RSA PRIVATE KEY",
+				Bytes: x509.MarshalPKCS1PrivateKey(key.(*rsa.PrivateKey)),
+			},
+		), nil
+	}
+	return nil, errors.New("private key is neither ecdsa nor rsa thus cannot be encoded")
 }
